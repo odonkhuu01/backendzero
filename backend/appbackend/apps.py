@@ -1,6 +1,6 @@
 from django.apps import AppConfig
 
 
-class ZeroappConfig(AppConfig):
+class AppbackendConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'zeroapp'
+    name = 'appbackend'
