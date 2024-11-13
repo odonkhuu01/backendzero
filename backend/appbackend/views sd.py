@@ -3,8 +3,9 @@ from django.shortcuts import render
 from datetime import datetime
 from django.http import JsonResponse
 import json
+import string, random, smtplib, psycopg2
+from email.mime.text import MIMEText
 from django.views.decorators.csrf import csrf_exempt
-from backend.settings import sendMail, sendResponse ,disconnectDB, connectDB, resultMessages,generateStr
 
 # Odoogiin tsagiig duuddag service
 def dt_gettime(request):
@@ -102,7 +103,7 @@ def dt_login(request):
             cursor1 = myConn.cursor() # creating cursor1
             
             # get logged user information
-            query = F"""SELECT uid, uname, fname, lname, lastlogin
+            query = F"""SELECT uname, fname, lname, lastlogin
                     FROM t_user 
                     WHERE uname = '{uname}' AND isverified = True AND upassword = '{upassword}'"""
             
@@ -113,13 +114,12 @@ def dt_login(request):
                 column in enumerate(value)} for value in cursor1.fetchall()] # respRow is list. elements are dictionary. dictionary structure is columnName : value
             # print(respRow)
             
-            uid = respRow[0]['uid'] #
             uname = respRow[0]['uname'] # 
             fname = respRow[0]['fname'] #
             lname = respRow[0]['lname'] #
             lastlogin = respRow[0]['lastlogin'] #
 
-            respdata = [{'uid': uid,'uname':uname, 'fname':fname, 'lname':lname, 'lastlogin':lastlogin}] # creating response logged user information
+            respdata = [{'uname':uname, 'fname':fname, 'lname':lname, 'lastlogin':lastlogin}] # creating response logged user information
             resp = sendResponse(request, 1002, respdata, action) # response beldej baina. 6 keytei.
 
             query = F"""UPDATE t_user 
@@ -607,8 +607,8 @@ def checkService(request): # hamgiin ehend duudagdah request shalgah service
         # }
         
         token = request.GET.get('token') # token parameteriin utgiig avch baina.
-        
         if (token is None):
+            print(token)
             action = "no action" 
             respdata = []  # response-n data-g beldej baina. list turultei baih
             resp = sendResponse(request, 3015, respdata, action)
@@ -742,3 +742,102 @@ def checkService(request): # hamgiin ehend duudagdah request shalgah service
         respdata = []
         resp = sendResponse(request, 3002, respdata, action)
         return JsonResponse(resp)
+        
+#Standartiin daguu response json-g 6 key-tei bolgoj beldej baina.
+def sendResponse(request, resultCode, data, action="no action"):
+    response = {} # response dictionary zarlaj baina
+    response["resultCode"] = resultCode # 
+    response["resultMessage"] = resultMessages[resultCode] #resultCode-d hargalzah message-g avch baina
+    response["data"] = data
+    response["size"] = len(data) # data-n urtiig avch baina
+    response["action"] = action
+    response["curdate"] = datetime.now().strftime('%Y/%m/%d %H:%M:%S') # odoogiin tsagiig response-d oruulj baina
+
+    return response 
+#   sendResponse
+
+# result Messages. nemj hugjuuleerei
+resultMessages = {
+    200:"Success",
+    400 : "Буруу хүсэлт",
+    404 : "Олдсонгүй.",
+    1000 : "Бүртгэхгүй боломжгүй. Цахим шуудан өмнө нь бүртгэлтэй байна.",
+    1001 : "Хэрэглэгч амжилттай бүртгэгдлээ. Баталгаажуулах мэйл илгээлээ. 24 цагийн дотор баталгаажуулна уу.",
+    1002 : "Амжилттай нэвтэрлээ.",
+    1003 : "Амжилттай баталгаажлаа.",
+    1004 : "Хэрэглэгчийн нэр, нууц үг буруу байна.",    
+    3001 : "ACTION буруу",
+    3002 : "METHOD буруу",
+    3003 : "JSON буруу",
+    3004 : "Токений хугацаа дууссан. Идэвхгүй токен байна.",
+    3005 : "NO ACTION",
+    3006 : "Нэвтрэх сервис key дутуу",
+    3007 : "Бүртгүүлэх сервисийн key дутуу",
+    3008 : "Баталгаажсан хэрэглэгч байна",
+    3009 : "Идэвхгүй токен эсвэл буруу токен байна",
+    3010 : "Бүртгэл баталгаажлаа",
+    3011 : "Мартсан нууц үг баталгаажлаа",
+    3012 : "Мартсан нууц үг хүсэлт илгээлээ",
+    3013 : "Нууц үг мартсан хэрэглэгч олдсонгүй",
+    3014 : "Баталгаажсан хэрэглэгч байна. Өмнөх бүртгэлээрээ нэвтэрнэ үү. Имэйл холбоос",
+    3015 : "no token parameter",
+    3016 : "forgot service key дутуу", 
+    3017 : "not forgot and register GET token",
+    3018 : "reset password key дутуу",
+    3019 : "Мартсан нууц үгийг шинэчиллээ.",
+    3020 : "Идэвхгүй токен эсвэл буруу токен байна. Нууц үг шинэчилж чадсангүй.",
+    3021 : "change password service key дутуу ",
+    3022 : "Нууц үг амжилттай солигдлоо.",
+    3023 : "Хуучин нууц үг таарсангүй",
+    3024 : "",
+    5001 : "Нэвтрэх сервис дотоод алдаа",
+    5002 : "Бүртгүүлэх сервис дотоод алдаа",
+    5003 : "Forgot service дотоод алдаа",
+    5004 : "GET method token дотоод алдаа",
+    5005 : "reset password service дотоод алдаа ",
+    5006 : "change password service дотоод алдаа ",
+}
+# resultMessage
+
+# db connection
+def connectDB():
+    conn = psycopg2.connect (
+        host = 'localhost', #server host
+        # host = '59.153.86.251',
+        dbname = 'projectzero', # database name
+        user = 'postgres', # databse user 
+        password = '1234', 
+        port = '5432', # postgre port
+    )
+    return conn
+# connectDB
+
+# DB disconnect hiij baina
+def disconnectDB(conn):
+    conn.close()
+# disconnectDB
+
+#random string generating
+def generateStr(length):
+    characters = string.ascii_lowercase + string.digits # jijig useg, toonuud
+    password = ''.join(random.choice(characters) for i in range(length)) # jijig useg toonuudiig token-g ugugdsun urtiin daguu (parameter length) uusgej baina
+    return password # uusgesen token-g butsaalaa
+# generateStr
+
+def sendMail(recipient, subj, bodyHtml):
+    sender_email = "testmail@mandakh.edu.mn"
+    sender_password = "Mandakh2"
+    recipient_email = recipient
+    subject = subj
+    body = bodyHtml
+    html_message = MIMEText(body, 'html')
+    html_message['Subject'] = subject
+    html_message['From'] = sender_email
+    html_message['To'] = recipient_email
+    with smtplib.SMTP('smtp-mail.outlook.com',587) as server:
+        server.ehlo()
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.sendmail(sender_email, recipient_email, html_message.as_string())
+        server.quit()
+#sendMail
